@@ -1,57 +1,5 @@
-<template>
-  <div id="app">
-    <h1>📋 OJT Time Tracker</h1>
-
-    <div class="input-section">
-      <label>Enter ID Number:</label>
-      <input v-model="idNumber" placeholder="000-1234" />
-      <button @click="checkStudent">Check</button>
-    </div>
-
-    <div v-if="student" class="student-section">
-      <div class="center-section">
-        <h2>{{ student.first_name }} {{ student.last_name }}</h2>
-        <p class="center-text">
-          Total hours:
-          <b>{{ totalHours.hours }}</b> hours <b>{{ totalHours.minutes }}</b> minutes
-        </p>
-      </div>
-
-      <div class="button-group">
-        <button v-if="!timedIn" @click="timeIn" class="time-in">Time In</button>
-        <button v-else @click="timeOut" class="time-out">Time Out</button>
-      </div>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Time In</th>
-            <th>Time Out</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="log in logs" :key="log.id">
-            <td>{{ formatDate(log.time_in) }}</td>
-            <td>{{ formatTime(log.time_in) }}</td>
-            <td v-if="log.time_out">{{ formatTime(log.time_out) }}</td>
-            <td v-else>In Progress</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div v-else-if="checked" class="register-section">
-      <p>❌ Student not found.</p>
-      <input v-model="newStudent.first_name" placeholder="First Name" />
-      <input v-model="newStudent.last_name" placeholder="Last Name" />
-      <button @click="registerStudent">Register</button>
-    </div>
-  </div>
-</template>
-
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { supabase } from '@/supabase'
 
 const idNumber = ref('')
@@ -60,7 +8,7 @@ const checked = ref(false)
 const timedIn = ref(false)
 const logs = ref([])
 
-const totalHours = ref({ hours: 0, minutes: 0 })
+const totalHours = ref({ hours: 0, minutes: 0, seconds: 0 })
 
 const newStudent = ref({
   student_id: '',
@@ -93,13 +41,22 @@ const computeTotal = () => {
     }
   })
 
-  const totalSeconds = Math.floor(totalMilliseconds / 1000)
-  const totalMinutes = Math.floor(totalSeconds / 60)
-
-  totalHours.value.hours = Math.floor(totalMinutes / 60)
-  totalHours.value.minutes = totalMinutes % 60
-  totalHours.value.seconds = totalSeconds % 60
+  const totalSeconds = totalMilliseconds / 1000
+  totalHours.value.hours = (totalSeconds / 3600) | 0
+  totalHours.value.minutes = ((totalSeconds % 3600) / 60) | 0
+  totalHours.value.seconds = totalSeconds % 60 | 0
 }
+
+// 📝 Group logs per date (return only first two logs)
+const groupedLogs = computed(() => {
+  const groups = {}
+  logs.value.forEach((log) => {
+    const date = formatDate(log.time_in)
+    if (!groups[date]) groups[date] = []
+    if (groups[date].length < 2) groups[date].push(log) // Only 2 logs per day
+  })
+  return groups
+})
 
 const checkStudent = async () => {
   const { data } = await supabase
@@ -121,7 +78,7 @@ const checkStudent = async () => {
     .from('ojt_logs')
     .select('*')
     .eq('student_id', idNumber.value)
-    .order('time_in', { ascending: false })
+    .order('time_in', { ascending: true }) // earliest first
 
   logs.value = logData
   computeTotal()
@@ -165,7 +122,7 @@ const timeOut = async () => {
     .from('ojt_logs')
     .select('*')
     .eq('student_id', idNumber.value)
-    .order('time_in', { ascending: false })
+    .order('time_in', { ascending: true })
     .limit(1)
     .maybeSingle()
 
@@ -182,6 +139,62 @@ const timeOut = async () => {
   }
 }
 </script>
+
+<template>
+  <div id="app">
+    <h1>📋 OJT Time Tracker</h1>
+
+    <div class="input-section">
+      <label>Enter ID Number:</label>
+      <input v-model="idNumber" placeholder="000-1234" />
+      <button @click="checkStudent">Check</button>
+    </div>
+
+    <div v-if="student" class="student-section">
+      <div class="center-section">
+        <h2>{{ student.first_name }} {{ student.last_name }}</h2>
+        <p class="center-text">
+          Total hours:
+          <b>{{ totalHours.hours }}</b> hours <b>{{ totalHours.minutes }}</b> minutes
+          <b>{{ totalHours.seconds }}</b> seconds
+        </p>
+      </div>
+
+      <div class="button-group">
+        <button v-if="!timedIn" @click="timeIn" class="time-in">Time In</button>
+        <button v-else @click="timeOut" class="time-out">Time Out</button>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+            <th>Time In</th>
+            <th>Time Out</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(dayLogs, date) in groupedLogs" :key="date">
+            <td>{{ date }}</td>
+            <td>{{ dayLogs[0] ? formatTime(dayLogs[0].time_in) : '-' }}</td>
+            <td>{{ dayLogs[0] && dayLogs[0].time_out ? formatTime(dayLogs[0].time_out) : '-' }}</td>
+            <td>{{ dayLogs[1] ? formatTime(dayLogs[1].time_in) : '-' }}</td>
+            <td>{{ dayLogs[1] && dayLogs[1].time_out ? formatTime(dayLogs[1].time_out) : '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div v-else-if="checked" class="register-section">
+      <p>❌ Student not found.</p>
+      <input v-model="newStudent.first_name" placeholder="First Name" />
+      <input v-model="newStudent.last_name" placeholder="Last Name" />
+      <button @click="registerStudent">Register</button>
+    </div>
+  </div>
+</template>
 
 <style scoped>
 html,
